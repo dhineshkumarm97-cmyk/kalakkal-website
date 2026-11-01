@@ -41,8 +41,21 @@ import {
   ShieldCheck,
   TrendingUp,
   Smile,
-  Compass
+  Compass,
+  Play,
+  Pause,
+  Copy,
+  Download,
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  Film,
+  QrCode,
+  Maximize2,
+  Scan,
+  RefreshCw
 } from 'lucide-react';
+import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 
 interface Section {
   id: string;
@@ -59,6 +72,34 @@ const APP_ICON_URL = "https://res.cloudinary.com/dkc9ru68y/image/upload/v1792199
 const COMPANY_ICON_URL = "https://res.cloudinary.com/dkc9ru68y/image/upload/v1792393315/IMG_20261011_111625_510_ufbitr.webp";
 const SUPPORT_EMAIL = "kalakkal.support.mdx@gmail.com";
 
+// Helper: extract video ID from pathname (/video/:id), query (?video=:id / ?v=:id), or hash (#/video/:id)
+function parseVideoIdFromCurrentLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  // 1. Check pathname: /video/:videoId
+  const path = window.location.pathname;
+  const pathMatch = path.match(/\/video\/([^\/?#]+)/i);
+  if (pathMatch && pathMatch[1]) {
+    return decodeURIComponent(pathMatch[1].trim());
+  }
+
+  // 2. Fallback to query param (?video=123 or ?v=123)
+  const params = new URLSearchParams(window.location.search);
+  const qId = params.get('video') || params.get('v') || params.get('id');
+  if (qId) {
+    return decodeURIComponent(qId.trim());
+  }
+
+  // 3. Fallback to hash route (#/video/123)
+  const hash = window.location.hash;
+  const hashMatch = hash.match(/#\/?video\/([^\/?#]+)/i);
+  if (hashMatch && hashMatch[1]) {
+    return decodeURIComponent(hashMatch[1].trim());
+  }
+
+  return null;
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewMode>('about-kalakkal');
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,6 +109,114 @@ export default function App() {
   const [deletionModalOpen, setDeletionModalOpen] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  // Dynamic Video Deep Linking State
+  const [videoId, setVideoId] = useState<string | null>(() => parseVideoIdFromCurrentLocation());
+  const [deepLinkScheme, setDeepLinkScheme] = useState<'kalakkal' | 'myapp'>('kalakkal');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [copiedVideoLink, setCopiedVideoLink] = useState(false);
+  const [appNotFoundModalOpen, setAppNotFoundModalOpen] = useState(false);
+  const [customTestInput, setCustomTestInput] = useState('');
+  const [showTesterDrawer, setShowTesterDrawer] = useState(true);
+
+  // Synchronize route changes (popstate & initial load)
+  useEffect(() => {
+    const handleUrlSync = () => {
+      const parsed = parseVideoIdFromCurrentLocation();
+      setVideoId(parsed);
+      if (parsed) {
+        document.title = `Viewing Video: ${parsed} — Kalakkal`;
+      } else {
+        document.title = "Kalakkal — Short Video & Social Platform";
+      }
+    };
+
+    window.addEventListener('popstate', handleUrlSync);
+    handleUrlSync();
+
+    return () => {
+      window.removeEventListener('popstate', handleUrlSync);
+    };
+  }, []);
+
+  // Update URL and state seamlessly
+  const navigateToVideo = (id: string | null) => {
+    if (id && id.trim()) {
+      const cleanId = id.trim();
+      window.history.pushState({}, '', `/video/${encodeURIComponent(cleanId)}`);
+      setVideoId(cleanId);
+      document.title = `Viewing Video: ${cleanId} — Kalakkal`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      window.history.pushState({}, '', '/');
+      setVideoId(null);
+      document.title = "Kalakkal — Short Video & Social Platform";
+    }
+  };
+
+  // Deep Link "Open in App" action with fallback detection
+  const handleOpenInApp = () => {
+    if (!videoId) return;
+    const customUri = `${deepLinkScheme}://video/${encodeURIComponent(videoId)}`;
+    
+    const clickTime = Date.now();
+    // Attempt launching the native app via custom URI scheme
+    window.location.href = customUri;
+
+    // Fallback: If user remains on web page after 1.8 seconds, open fallback modal / alert
+    setTimeout(() => {
+      if (!document.hidden && Date.now() - clickTime < 3500) {
+        setAppNotFoundModalOpen(true);
+      }
+    }, 1800);
+  };
+
+  const handleCopyVideoUrl = () => {
+    if (!videoId) return;
+    const url = `${window.location.origin}/video/${encodeURIComponent(videoId)}`;
+    navigator.clipboard.writeText(url);
+    setCopiedVideoLink(true);
+    setTimeout(() => setCopiedVideoLink(false), 2000);
+  };
+
+  // QR Code Generation & Management
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrTargetMode, setQrTargetMode] = useState<'web' | 'scheme'>('web');
+  const [copiedQrUrl, setCopiedQrUrl] = useState(false);
+
+  const currentVideoWebUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/video/${encodeURIComponent(videoId || '')}`;
+  }, [videoId]);
+
+  const currentVideoSchemeUrl = useMemo(() => {
+    return `${deepLinkScheme}://video/${encodeURIComponent(videoId || '')}`;
+  }, [deepLinkScheme, videoId]);
+
+  const activeQrValue = qrTargetMode === 'web' ? currentVideoWebUrl : currentVideoSchemeUrl;
+
+  const handleDownloadQrCode = () => {
+    const canvas = document.getElementById('kalakkal-export-qr-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const pngUrl = canvas.toDataURL('image/png');
+      const downloadLink = document.createElement('a');
+      downloadLink.href = pngUrl;
+      downloadLink.download = `kalakkal-video-${videoId || 'share'}-qr.png`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    } catch (e) {
+      console.error('Failed to download QR canvas', e);
+    }
+  };
+
+  const handleCopyQrUrl = () => {
+    if (!activeQrValue) return;
+    navigator.clipboard.writeText(activeQrValue);
+    setCopiedQrUrl(true);
+    setTimeout(() => setCopiedQrUrl(false), 2000);
+  };
 
 
   useEffect(() => {
@@ -464,6 +613,439 @@ export default function App() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Dynamic Link Tester Toolbar (Collapsible Bar for instant URL testing) */}
+      <div className="bg-neutral-900/90 border-b border-neutral-800 text-xs px-4 py-2.5 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#00D6A3]/10 text-[#00D6A3] font-mono text-[11px] font-bold border border-[#00D6A3]/30">
+              <Film className="w-3 h-3" />
+              Dynamic Route:
+            </span>
+            <span className="font-mono text-neutral-300 text-[11px]">
+              {videoId ? (
+                <>
+                  <span className="text-neutral-500">/video/</span>
+                  <span className="text-[#00D6A3] font-bold">{videoId}</span>
+                </>
+              ) : (
+                <span className="text-neutral-400">/ (Landing Page)</span>
+              )}
+            </span>
+          </div>
+
+          {/* Quick test buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-neutral-400 text-[11px] hidden sm:inline">Test URL:</span>
+            <button
+              onClick={() => navigateToVideo('123')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition cursor-pointer border ${
+                videoId === '123'
+                  ? 'bg-[#00D6A3] text-black border-[#00D6A3] font-bold'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'
+              }`}
+            >
+              /video/123
+            </button>
+            <button
+              onClick={() => navigateToVideo('tamil-reels-88')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition cursor-pointer border ${
+                videoId === 'tamil-reels-88'
+                  ? 'bg-[#00D6A3] text-black border-[#00D6A3] font-bold'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'
+              }`}
+            >
+              /video/tamil-reels-88
+            </button>
+            <button
+              onClick={() => navigateToVideo('viral-clip-999')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition cursor-pointer border ${
+                videoId === 'viral-clip-999'
+                  ? 'bg-[#00D6A3] text-black border-[#00D6A3] font-bold'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'
+              }`}
+            >
+              /video/viral-clip-999
+            </button>
+
+            {/* Custom input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (customTestInput.trim()) {
+                  navigateToVideo(customTestInput.trim());
+                  setCustomTestInput('');
+                }
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <input
+                type="text"
+                placeholder="Custom ID..."
+                value={customTestInput}
+                onChange={(e) => setCustomTestInput(e.target.value)}
+                className="px-2 py-1 bg-black/60 border border-neutral-700 rounded-md text-white text-[11px] font-mono w-24 focus:w-32 focus:border-[#00D6A3] focus:outline-none transition-all placeholder:text-neutral-500"
+              />
+              <button
+                type="submit"
+                className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded-md text-[11px] font-semibold text-neutral-200 cursor-pointer"
+              >
+                Go
+              </button>
+            </form>
+
+            {videoId && (
+              <button
+                onClick={() => navigateToVideo(null)}
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-neutral-800 hover:bg-red-950/60 text-neutral-300 hover:text-red-400 border border-neutral-700 transition cursor-pointer flex items-center gap-1"
+                title="Return to standard landing page"
+              >
+                <X className="w-3 h-3" />
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================== */}
+      {/* DYNAMIC VIDEO VIEWER SECTION (Active when videoId is present) */}
+      {/* ============================================================== */}
+      {videoId && (
+        <section className="bg-gradient-to-b from-neutral-900/90 via-neutral-950 to-[#0B0B0C] border-b border-neutral-800/80 py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-4xl mx-auto">
+            
+            {/* Top Back / Status Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+              <button
+                onClick={() => navigateToVideo(null)}
+                className="inline-flex items-center gap-2 text-xs font-semibold text-neutral-400 hover:text-white transition cursor-pointer px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-[#00D6A3]" />
+                Back to Kalakkal Home
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-neutral-400 text-xs">Deep Link Scheme:</span>
+                <div className="inline-flex rounded-lg bg-neutral-900 p-0.5 border border-neutral-800 text-xs">
+                  <button
+                    onClick={() => setDeepLinkScheme('kalakkal')}
+                    className={`px-2.5 py-1 rounded-md font-mono text-[11px] transition ${
+                      deepLinkScheme === 'kalakkal'
+                        ? 'bg-[#00D6A3] text-black font-bold'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    kalakkal://
+                  </button>
+                  <button
+                    onClick={() => setDeepLinkScheme('myapp')}
+                    className={`px-2.5 py-1 rounded-md font-mono text-[11px] transition ${
+                      deepLinkScheme === 'myapp'
+                        ? 'bg-[#00D6A3] text-black font-bold'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    myapp://
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Video Presentation Card */}
+            <div className="bg-neutral-950 border border-neutral-800 rounded-3xl p-6 sm:p-10 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-[#00D6A3]/10 rounded-full blur-3xl pointer-events-none"></div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+                
+                {/* Left Column: Short Video Mockup Player (Vertical 9:16) */}
+                <div className="md:col-span-5 flex justify-center">
+                  <div className="relative w-64 h-[440px] bg-neutral-900 rounded-3xl border-2 border-neutral-800 shadow-2xl overflow-hidden flex flex-col justify-between p-4 group">
+                    {/* Simulated Video Background Gradient with Animated Glow */}
+                    <div className="absolute inset-0 bg-gradient-to-tr from-[#00D6A3]/25 via-neutral-900 to-purple-900/30"></div>
+                    
+                    {/* Thumbnail Poster Simulation */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-24 h-24 rounded-full bg-[#00D6A3]/10 border border-[#00D6A3]/30 flex items-center justify-center animate-pulse">
+                        <Video className="w-10 h-10 text-[#00D6A3]" />
+                      </div>
+                    </div>
+
+                    {/* Top overlay in player */}
+                    <div className="relative z-10 flex items-center justify-between text-white text-xs">
+                      <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                        <span className="font-semibold text-[10px] tracking-wide">REEL PREVIEW</span>
+                      </div>
+                      <span className="text-[11px] font-mono text-neutral-300 bg-black/40 px-2 py-0.5 rounded-md">
+                        #{videoId}
+                      </span>
+                    </div>
+
+                    {/* Center Play Button Overlay */}
+                    <div className="relative z-10 self-center">
+                      <button
+                        onClick={() => setIsPlaying(!isPlaying)}
+                        className="w-16 h-16 rounded-full bg-black/70 backdrop-blur-md border border-[#00D6A3]/50 text-white flex items-center justify-center hover:scale-110 hover:bg-[#00D6A3] hover:text-black transition-all shadow-xl cursor-pointer"
+                        aria-label={isPlaying ? 'Pause video' : 'Play video'}
+                      >
+                        {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current ml-1" />}
+                      </button>
+                    </div>
+
+                    {/* Bottom Metadata inside Player */}
+                    <div className="relative z-10 space-y-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-2 -mx-2 -mb-2 rounded-b-2xl">
+                      <div className="flex items-center gap-2">
+                        <img 
+                          src={APP_ICON_URL} 
+                          alt="Kalakkal Creator" 
+                          className="w-6 h-6 rounded-full border border-neutral-700 bg-black"
+                        />
+                        <span className="text-xs font-bold text-white tracking-wide">@kalakkal_creator</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00D6A3]/20 text-[#00D6A3] font-semibold">Pro</span>
+                      </div>
+                      <p className="text-[11px] text-neutral-200 line-clamp-2">
+                        Enjoying the trending short video on Kalakkal! #Kalakkal #Trending #Video{videoId}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+                        <Sparkles className="w-3 h-3 text-[#00D6A3]" />
+                        <span>Original Audio — Kalakkal Beats</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Dynamic Text, Info, and Actions */}
+                <div className="md:col-span-7 space-y-6">
+                  
+                  {/* Dynamic Status Pill */}
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00D6A3]/10 border border-[#00D6A3]/30 text-[#00D6A3] text-xs font-semibold">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Dynamic URL Parameter Parsed
+                  </div>
+
+                  {/* REQUIRED DYNAMIC TEXT ELEMENT */}
+                  <div className="space-y-2">
+                    <h2 
+                      id="viewing-video-heading"
+                      className="text-3xl sm:text-4xl font-black text-white tracking-tight flex items-baseline gap-2 flex-wrap"
+                    >
+                      <span>Viewing Video:</span>
+                      <span className="text-[#00D6A3] font-mono break-all">{videoId}</span>
+                    </h2>
+                    <p className="text-sm text-neutral-400 leading-relaxed">
+                      This page dynamically recognized the video ID from the URL path <code className="text-neutral-200 bg-neutral-900 px-1.5 py-0.5 rounded font-mono text-xs">/video/{videoId}</code>. Open it directly in your installed Kalakkal mobile app or share it with friends.
+                    </p>
+                  </div>
+
+                  {/* Primary CTA: "Open in App" Button */}
+                  <div className="space-y-3 pt-2">
+                    <button
+                      onClick={handleOpenInApp}
+                      className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-[#00D6A3] hover:bg-[#00bf91] text-black text-sm font-extrabold transition-all flex items-center justify-center gap-3 shadow-xl shadow-[#00D6A3]/25 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                      <img 
+                        src={APP_ICON_URL} 
+                        alt="Kalakkal App" 
+                        className="w-5 h-5 rounded-md object-contain bg-black"
+                      />
+                      <span>Open in App</span>
+                      <span className="text-[11px] font-mono bg-black/20 px-2 py-0.5 rounded font-normal">
+                        {deepLinkScheme}://video/{videoId}
+                      </span>
+                    </button>
+
+                    {/* Secondary Actions */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={handleCopyVideoUrl}
+                        className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-200 transition flex items-center gap-2 cursor-pointer"
+                      >
+                        {copiedVideoLink ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-[#00D6A3]" />
+                            <span className="text-[#00D6A3]">Copied Share Link!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-neutral-400" />
+                            <span>Copy Web Link</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => setQrModalOpen(true)}
+                        className="px-4 py-2.5 rounded-xl bg-[#00D6A3]/10 hover:bg-[#00D6A3]/20 border border-[#00D6A3]/40 text-xs font-semibold text-[#00D6A3] transition flex items-center gap-2 cursor-pointer shadow-sm shadow-[#00D6A3]/10"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>Scan QR Code</span>
+                      </button>
+
+                      <button
+                        onClick={() => setAppNotFoundModalOpen(true)}
+                        className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-200 transition flex items-center gap-2 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>App Download & Help</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Technical Deep Link Info Box */}
+                  <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-4 space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-neutral-400">
+                      <span className="font-semibold text-neutral-300">Deep Link Inspection</span>
+                      <span className="font-mono text-[10px] text-[#00D6A3]">Custom Scheme</span>
+                    </div>
+                    <div className="bg-black/70 p-2.5 rounded-lg border border-neutral-800 font-mono text-[11px] text-[#00D6A3] select-all break-all">
+                      {deepLinkScheme}://video/{videoId}
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-normal">
+                      When clicked, your browser triggers the Android Intent. If the app is not installed, the page provides fallback options automatically.
+                    </p>
+                  </div>
+
+                  {/* Dynamic Video QR Code Card for Mobile Users */}
+                  <div className="bg-gradient-to-br from-neutral-900/95 via-neutral-900/70 to-neutral-950 border border-neutral-800 rounded-3xl p-5 space-y-4 shadow-xl">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800/80 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-[#00D6A3]/10 border border-[#00D6A3]/30 flex items-center justify-center text-[#00D6A3]">
+                          <QrCode className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                            <span>Scan & Watch on Mobile</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#00D6A3]/20 text-[#00D6A3]">Live QR</span>
+                          </h3>
+                          <p className="text-[11px] text-neutral-400">Scan with your phone's camera to load video #{videoId} instantly</p>
+                        </div>
+                      </div>
+
+                      {/* Format toggle: Web URL vs Scheme */}
+                      <div className="inline-flex p-1 rounded-xl bg-black/60 border border-neutral-800 text-xs font-medium">
+                        <button
+                          onClick={() => setQrTargetMode('web')}
+                          className={`px-3 py-1 rounded-lg transition text-[11px] cursor-pointer ${
+                            qrTargetMode === 'web' 
+                              ? 'bg-[#00D6A3] text-black font-bold shadow' 
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          Web URL
+                        </button>
+                        <button
+                          onClick={() => setQrTargetMode('scheme')}
+                          className={`px-3 py-1 rounded-lg transition text-[11px] cursor-pointer ${
+                            qrTargetMode === 'scheme' 
+                              ? 'bg-[#00D6A3] text-black font-bold shadow' 
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          App Deep Link
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-5 pt-1">
+                      {/* High contrast QR code container with viewfinder aesthetics */}
+                      <div className="relative group shrink-0">
+                        <div className="p-3 bg-white rounded-2xl shadow-2xl border-2 border-neutral-700/80 group-hover:border-[#00D6A3] transition-all">
+                          <QRCodeSVG
+                            value={activeQrValue || currentVideoWebUrl}
+                            size={140}
+                            level="H"
+                            marginSize={1}
+                            bgColor="#FFFFFF"
+                            fgColor="#09090B"
+                          />
+                        </div>
+                        {/* Scanner corner brackets */}
+                        <div className="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-[#00D6A3] rounded-tl pointer-events-none"></div>
+                        <div className="absolute -top-1 -right-1 w-3 h-3 border-t-2 border-r-2 border-[#00D6A3] rounded-tr pointer-events-none"></div>
+                        <div className="absolute -bottom-1 -left-1 w-3 h-3 border-b-2 border-l-2 border-[#00D6A3] rounded-bl pointer-events-none"></div>
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-[#00D6A3] rounded-br pointer-events-none"></div>
+                      </div>
+
+                      {/* Info & action buttons */}
+                      <div className="flex-1 space-y-3 w-full text-left">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                            <span className="font-semibold text-neutral-300">Encoded Target:</span>
+                            <span className="font-mono text-[10px] text-[#00D6A3]">
+                              {qrTargetMode === 'web' ? 'Universal Web URL' : `${deepLinkScheme}:// scheme`}
+                            </span>
+                          </div>
+                          <div className="bg-black/80 p-2 rounded-xl border border-neutral-800 font-mono text-[11px] text-neutral-200 truncate select-all">
+                            {activeQrValue || currentVideoWebUrl}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={handleDownloadQrCode}
+                            className="px-3 py-1.5 rounded-xl bg-[#00D6A3] hover:bg-[#00bf91] text-black text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-[#00D6A3]/15 cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Save QR (PNG)</span>
+                          </button>
+
+                          <button
+                            onClick={handleCopyQrUrl}
+                            className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-200 transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {copiedQrUrl ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-[#00D6A3]" />
+                                <span className="text-[#00D6A3]">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5 text-neutral-400" />
+                                <span>Copy Link</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() => setQrModalOpen(true)}
+                            className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-300 transition flex items-center gap-1.5 cursor-pointer"
+                            title="Open large scanner modal"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5 text-neutral-400" />
+                            <span>Enlarge</span>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] text-neutral-400 pt-0.5">
+                          <Scan className="w-3.5 h-3.5 text-[#00D6A3] shrink-0" />
+                          <span>Point iPhone Camera or Android Google Lens directly at the QR code.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Hidden Canvas for High-Resolution PNG Download */}
+                  <div className="hidden" aria-hidden="true">
+                    <QRCodeCanvas
+                      id="kalakkal-export-qr-canvas"
+                      value={activeQrValue || currentVideoWebUrl}
+                      size={600}
+                      level="H"
+                      marginSize={2}
+                      bgColor="#FFFFFF"
+                      fgColor="#000000"
+                    />
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </section>
       )}
 
       {/* ========================================== */}
@@ -1434,6 +2016,200 @@ export default function App() {
         </div>
       )}
 
+      {/* App Launch Fallback Modal (Triggered when Open in App is clicked but app isn't installed) */}
+      {appNotFoundModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-neutral-950 border border-neutral-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl relative">
+            <button
+              onClick={() => setAppNotFoundModalOpen(false)}
+              className="absolute top-5 right-5 p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
+              aria-label="Close modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="space-y-2">
+              <div className="w-12 h-12 rounded-2xl bg-[#00D6A3]/10 border border-[#00D6A3]/20 flex items-center justify-center text-[#00D6A3]">
+                <Smartphone className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Open Video in Kalakkal</h3>
+              <p className="text-xs text-neutral-400">
+                Attempting to open <span className="font-mono text-[#00D6A3]">#{videoId}</span> in your installed Android app.
+              </p>
+            </div>
+
+            <div className="bg-neutral-900/80 border border-neutral-800 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-neutral-300">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>App not opening automatically?</span>
+              </div>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                If the Kalakkal application is not installed on this device, the custom scheme will not be recognized by your browser.
+              </p>
+              <div className="bg-black/80 p-2.5 rounded-lg border border-neutral-800 font-mono text-[11px] text-[#00D6A3] select-all break-all">
+                {deepLinkScheme}://video/{videoId}
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <a
+                href="https://kalakkalapp.web.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3.5 px-4 rounded-xl bg-[#00D6A3] hover:bg-[#00bf91] text-black text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-[#00D6A3]/20 cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Download Kalakkal APK (Direct)
+              </a>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    const altScheme = deepLinkScheme === 'kalakkal' ? 'myapp' : 'kalakkal';
+                    setDeepLinkScheme(altScheme);
+                    window.location.href = `${altScheme}://video/${encodeURIComponent(videoId || '')}`;
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] font-semibold text-neutral-200 transition cursor-pointer"
+                >
+                  Try {deepLinkScheme === 'kalakkal' ? 'myapp://' : 'kalakkal://'}
+                </button>
+                <button
+                  onClick={handleCopyVideoUrl}
+                  className="py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] font-semibold text-neutral-200 transition cursor-pointer"
+                >
+                  {copiedVideoLink ? 'Copied Link!' : 'Copy Web Link'}
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setAppNotFoundModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-300 transition cursor-pointer"
+              >
+                Stay on Web Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged QR Code Scanner & Share Modal */}
+      {qrModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-neutral-950 border border-neutral-800 rounded-3xl max-w-md w-full p-6 sm:p-7 space-y-5 shadow-2xl relative">
+            <button
+              onClick={() => setQrModalOpen(false)}
+              className="absolute top-5 right-5 p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
+              aria-label="Close modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="space-y-1 text-center">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00D6A3]/10 border border-[#00D6A3]/25 text-[#00D6A3] text-xs font-semibold">
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Mobile Scan & Share</span>
+              </div>
+              <h3 className="text-xl font-bold text-white pt-1">
+                Scan to Watch Video <span className="text-[#00D6A3]">#{videoId}</span>
+              </h3>
+              <p className="text-xs text-neutral-400">
+                Point any smartphone camera or QR reader at the code below.
+              </p>
+            </div>
+
+            {/* Target mode switcher */}
+            <div className="flex justify-center">
+              <div className="inline-flex p-1 rounded-xl bg-neutral-900 border border-neutral-800 text-xs">
+                <button
+                  onClick={() => setQrTargetMode('web')}
+                  className={`px-4 py-1.5 rounded-lg transition text-xs font-semibold cursor-pointer ${
+                    qrTargetMode === 'web'
+                      ? 'bg-[#00D6A3] text-black shadow'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Universal Web Link
+                </button>
+                <button
+                  onClick={() => setQrTargetMode('scheme')}
+                  className={`px-4 py-1.5 rounded-lg transition text-xs font-semibold cursor-pointer ${
+                    qrTargetMode === 'scheme'
+                      ? 'bg-[#00D6A3] text-black shadow'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  App Scheme ({deepLinkScheme}://)
+                </button>
+              </div>
+            </div>
+
+            {/* Centered QR Display with Scanner Styling */}
+            <div className="flex flex-col items-center justify-center pt-1">
+              <div className="relative p-4 bg-white rounded-3xl shadow-2xl border-4 border-neutral-800">
+                <QRCodeSVG
+                  value={activeQrValue || currentVideoWebUrl}
+                  size={200}
+                  level="H"
+                  marginSize={1}
+                  bgColor="#FFFFFF"
+                  fgColor="#0A0A0C"
+                />
+                {/* Viewfinder corner brackets */}
+                <div className="absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 border-[#00D6A3] rounded-tl pointer-events-none"></div>
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 border-[#00D6A3] rounded-tr pointer-events-none"></div>
+                <div className="absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 border-[#00D6A3] rounded-bl pointer-events-none"></div>
+                <div className="absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 border-[#00D6A3] rounded-br pointer-events-none"></div>
+              </div>
+            </div>
+
+            {/* Encoded URL display */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-semibold text-neutral-400">Encoded Content:</span>
+              <div className="bg-black/80 p-2.5 rounded-xl border border-neutral-800 font-mono text-[11px] text-[#00D6A3] break-all select-all">
+                {activeQrValue || currentVideoWebUrl}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                onClick={handleDownloadQrCode}
+                className="py-3 px-3 rounded-xl bg-[#00D6A3] hover:bg-[#00bf91] text-black text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-[#00D6A3]/20 cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Save Image (PNG)
+              </button>
+
+              <button
+                onClick={handleCopyQrUrl}
+                className="py-3 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-200 transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {copiedQrUrl ? (
+                  <>
+                    <Check className="w-4 h-4 text-[#00D6A3]" />
+                    <span className="text-[#00D6A3]">Link Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4 text-neutral-400" />
+                    <span>Copy Link</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="pt-2 flex justify-between items-center text-[11px] text-neutral-500 border-t border-neutral-900">
+              <span>Kalakkal Dynamic URL Handler</span>
+              <button
+                onClick={() => setQrModalOpen(false)}
+                className="text-xs text-neutral-400 hover:text-white transition cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
