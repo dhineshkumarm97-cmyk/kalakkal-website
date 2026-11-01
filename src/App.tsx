@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { db } from './firebaseConfig';
+import { doc, getDoc } from 'firebase/firestore';
+
 import { 
   Shield, 
   FileText, 
@@ -56,6 +59,12 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
+
+declare global {
+  interface Window {
+    cloudinary: any;
+  }
+}
 
 interface Section {
   id: string;
@@ -119,6 +128,26 @@ export default function App() {
   const [customTestInput, setCustomTestInput] = useState('');
   const [showTesterDrawer, setShowTesterDrawer] = useState(true);
 
+  // Firestore video loader
+  async function loadVideo(videoId: string) {
+    const docRef = doc(db, "videos", videoId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const publicId = data.publicId || data.videoUrl; // Assuming Firestore stores publicId or full URL
+      console.log("Video data:", data);
+      
+      if (publicId && window.cloudinary) {
+        const cld = window.cloudinary.Cloudinary.new({ cloud_name: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME });
+        const player = cld.videoPlayer('video-player-container', {
+            cloud_name: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME,
+            secure: true
+        });
+        player.source(publicId).play();
+      }
+    }
+  }
+
   // Synchronize route changes (popstate & initial load)
   useEffect(() => {
     const handleUrlSync = () => {
@@ -126,6 +155,7 @@ export default function App() {
       setVideoId(parsed);
       if (parsed) {
         document.title = `Viewing Video: ${parsed} — Kalakkal`;
+        loadVideo(parsed);
       } else {
         document.title = "Kalakkal — Short Video & Social Platform";
       }
@@ -766,10 +796,8 @@ export default function App() {
                     <div className="absolute inset-0 bg-gradient-to-tr from-[#00D6A3]/25 via-neutral-900 to-purple-900/30"></div>
                     
                     {/* Thumbnail Poster Simulation */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-24 h-24 rounded-full bg-[#00D6A3]/10 border border-[#00D6A3]/30 flex items-center justify-center animate-pulse">
-                        <Video className="w-10 h-10 text-[#00D6A3]" />
-                      </div>
+                    <div id="video-player-container" className="absolute inset-0 z-10">
+                        {/* Cloudinary Player will mount here */}
                     </div>
 
                     {/* Top overlay in player */}
